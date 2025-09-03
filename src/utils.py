@@ -223,3 +223,56 @@ def get_plot_colors(labels):
         elif 'Only Head' in name: color_map.append('orange')
         else: color_map.append('mediumseagreen') #Full FT
     return color_map
+
+def extract_metrics_from_results(results, baseline_model_name="Base Model + Fine-Tune"):
+    """
+    Estrae accuracy, F1, tempo e memoria dal dizionario dei risultati e identifica i valori baseline e zero-shot
+    Ritorna un dizionario che contiene liste di etichette e valori per ogni metrica
+    """
+    labels_acc, data_acc = [], []
+    labels_f1, data_f1 = [], []
+    labels_time, data_time = [], []
+    labels_mem, data_mem = [], []
+
+    baseline_acc, baseline_f1, baseline_time, baseline_mem = None, None, None, None
+    min_baseline_acc, min_baseline_f1 = None, None
+
+    for name, res in results.items():
+        if res.get('acc_finetuned') is not None:
+            labels_acc.append(name)
+            data_acc.append(res['acc_finetuned'])
+            if name == baseline_model_name:
+                baseline_acc = res['acc_finetuned']
+                min_baseline_acc = res['acc_zero_shot']
+            if "(Head Only)" in name:
+                labels_acc.append(name[:-11] + " (Zero-Shot)")
+                data_acc.append(res['acc_zero_shot'])
+
+        if res.get('f1_finetuned') is not None:
+            labels_f1.append(name)
+            data_f1.append(res['f1_finetuned'])
+            if name == baseline_model_name:
+                baseline_f1 = res['f1_finetuned']
+                min_baseline_f1 = res['f1_zero_shot']
+            if "(Head Only)" in name:
+                labels_f1.append(name[:-11] + " (Zero-Shot)")
+                data_f1.append(res['f1_zero_shot'])
+
+        if res.get('time') is not None:
+            labels_time.append(name)
+            data_time.append(res['time'])
+            if name == baseline_model_name:
+                baseline_time = res['time']
+
+        if res.get('ram_gb') is not None:
+            labels_mem.append(name)
+            data_mem.append(res['ram_gb'])
+            if name == baseline_model_name:
+                baseline_mem = res['ram_gb']
+
+    return {
+        "acc": (labels_acc, data_acc, baseline_acc, min_baseline_acc),
+        "f1": (labels_f1, data_f1, baseline_f1, min_baseline_f1),
+        "time": (labels_time, data_time, baseline_time),
+        "mem": (labels_mem, data_mem, baseline_mem)
+    }
