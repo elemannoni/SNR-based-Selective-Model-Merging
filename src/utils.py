@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from copy import deepcopy
 from scipy.optimize import linear_sum_assignment
+import pandas as pd
 
 def transfer_body_weights(backbone_model, expert_model):
     """
@@ -92,27 +93,93 @@ def git_rebasin_align(model_ref, model_to_align):
     return aligned_model
 
 def cycle_consistency(model, model_A, model_B):
-  aligned_model_B = git_rebasin_align(model, model_B)
-  B_realigned = git_rebasin_align(model_B, aligned_model_B)
-  aligned_model_A = git_rebasin_align(model, model_A)
-  A_realigned = git_rebasin_align(model_A, aligned_model_A)
-
-  cycle_loss = 0
-  for layer_orig, layer_realigned in zip(model_A.layers, A_realigned.layers):
+    """
+    Calcola la consistenza ciclica riallineando i modelli e confrontando con i pesi originali
+    """
+    aligned_model_B = git_rebasin_align(model, model_B)
+    B_realigned = git_rebasin_align(model_B, aligned_model_B)
+    aligned_model_A = git_rebasin_align(model, model_A)
+    A_realigned = git_rebasin_align(model_A, aligned_model_A)
+    
+    cycle_loss = 0
+    for layer_orig, layer_realigned in zip(model_A.layers, A_realigned.layers):
       cycle_loss += F.mse_loss(layer_orig.weight.data, layer_realigned.weight.data)
-
-  print(f"Perdita di Coerenza Ciclica A: {cycle_loss.item()}")
-
-  cycle_loss = 0
-  for layer_orig, layer_realigned in zip(model_B.layers, B_realigned.layers):
+    
+    print(f"Perdita di Coerenza Ciclica A: {cycle_loss.item()}")
+    
+    cycle_loss = 0
+    for layer_orig, layer_realigned in zip(model_B.layers, B_realigned.layers):
       cycle_loss += F.mse_loss(layer_orig.weight.data, layer_realigned.weight.data)
-
-  print(f"Perdita di Coerenza Ciclica B: {cycle_loss.item()}")
+    
+    print(f"Perdita di Coerenza Ciclica B: {cycle_loss.item()}")
 
 
 def check_models_identical(m1, m2):
-    """Verifica se due modelli hanno pesi identici."""
+    """
+    Verifica se due modelli hanno pesi identici
+    """
     for p1, p2 in zip(m1.parameters(), m2.parameters()):
         if not torch.equal(p1, p2):
             return False
     return True
+
+def calculate_delta(model, base_model, layer_to_ignore='output'):
+    """
+    Calcola la differenza (delta) tra i pesi di un modello e un modello base
+    """
+    base_weights = base_model.state_dict()
+    model_weights = model.state_dict()
+    delta = {
+        key: model_weights[key].to(base_weights[key].device) - base_weights[key]
+        for key in base_weights
+        if layer_to_ignore not in key
+    }
+    return delta
+
+def calculate_cosine_similarity(delta1, delta2):
+    """
+    Calcola la similarità cosenica tra due delta di pesi
+    """
+    keys = sorted(list(delta1.keys()))
+    if not keys: return 0.0
+    flat_delta1 = torch.cat([delta1[key].flatten() for key in keys])
+    flat_delta2 = torch.cat([delta2[key].flatten() for key in keys])
+    similarity = F.cosine_similarity(flat_delta1.float(), flat_delta2.float(), dim=0)
+    return similarity.item()
+
+def perform_consistency_analysis(delta_A, delta_B, delta_merged):
+    """
+    Calcola la consistenza ciclica su un set di delta
+    """
+    if not delta_merged: #Se non ci sono layer da analizzare
+        return 0.0, 0.0, 0.0
+
+    #Vettori di spostamento
+    recovered_B_direction = {key: delta_merged[key] - delta_A[key] for key in delta_merged}
+    recovered_A_direction = {key: delta_merged[key] - delta_B[key] for key in delta_merged}
+
+    #Vettori target
+    target_B_direction = {key: delta_B[key] - delta_A[key] for key in delta_merged}
+    target_A_direction = {key: delta_A[key] - delta_B[key] for key in delta_merged}
+
+    #Calcolo similarità
+    consistency_A = calculate_cosine_similarity(recovered_A_direction, target_A_direction)
+    consistency_B = calculate_cosine_similarity(recovered_B_direction, target_B_direction)
+    avg_consistency = (consistency_A + consistency_B) / 2
+    
+    return consistency_A, consistency_B, avg_consistency
+
+def print_summary(title, results_dict):
+    print("\n" + "="*50)
+    print(f"{title}")
+    print("="*50)
+    if not results_dict:
+        print("Nessun risultato da visualizzare.")
+        return
+    results_df = pd.DataFrame.from_dict(results_dict, orient='index')
+    results_df = results_df.sort_values(by='avg_consistency', ascending=False)
+    print(results_df.to_string(formatters={
+        'consistency_A': '{:,.4f}'.format,
+        'consistency_B': '{:,.4f}'.format,
+        'avg_consistency': '{:,.4f}'.format
+    }))
