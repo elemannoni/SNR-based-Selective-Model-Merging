@@ -183,3 +183,23 @@ def print_summary(title, results_dict):
         'consistency_B': '{:,.4f}'.format,
         'avg_consistency': '{:,.4f}'.format
     }))
+
+def freeze_layers_selectively(model, trainable_indices: list):
+    """  
+    Congela tutti i layer del modello tranne l'output_layer e quelli i cui
+    indici sono specificati nella lista trainable_indices
+    """
+    #Congela tutti i parametri
+    for param in model.parameters():
+        param.requires_grad = False
+
+    #Scongela i layer di trainable_indices
+    for i, layer in enumerate(model.layers):
+        if i in trainable_indices:
+            for param in layer.parameters():
+                param.requires_grad = True
+
+    #Scongela sempre l'output_layer
+    for param in model.output_layer.parameters():
+        param.requires_grad = True
+
