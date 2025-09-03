@@ -12,3 +12,6 @@ Questo progetto estende al model merging il metodo di selezione dei layer introd
 │ ├── utils.py<br>
 │── notebook.ipynb<br>
 │── README.md<br>
+
+
+Main notebook: [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/elemannoni/SNR-based-Selective-Model-Merging/blob/main/SNR_based_merging.ipynb)
