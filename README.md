@@ -3,7 +3,7 @@
 # Struttura
 │── src/ <br>
 │ ├── dataset.py<br>
-│ ├── models.py <br>
+│ ├── model.py <br>
 │ ├── train.py<br>
 │ ├── test.py<br>
 │ ├── merge.py<br>
