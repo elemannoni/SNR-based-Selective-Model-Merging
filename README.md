@@ -8,6 +8,7 @@ Questo progetto estende al model merging il metodo di selezione dei layer introd
 │ ├── train_and_evaluation.py<br>
 │ ├── merge.py<br>
 │ ├── snr.py<br>
+│ ├── test.py<br>
 │ ├── utils.py<br>
 │── notebook.ipynb<br>
 │── README.md<br>
