@@ -203,3 +203,23 @@ def freeze_layers_selectively(model, trainable_indices: list):
     for param in model.output_layer.parameters():
         param.requires_grad = True
 
+def get_group_name(model_name):
+    """
+    Estrae il nome del gruppo da un nome di modello completo (il gruppo è tutto ciò che precede la prima parentesi '(')
+    """
+    if '(' in model_name:
+        return model_name.split('(')[0].strip()
+    else:
+        return model_name.strip()
+
+
+def get_plot_colors(labels):
+    color_map = []
+    for name in labels:
+        if 'Base Model' in name: color_map.append('gray')
+        elif 'Naive Average' in name: color_map.append('slateblue')
+        elif 'Expert' in name: color_map.append('silver')
+        elif 'Selective FT' in name: color_map.append('lightcoral')
+        elif 'Only Head' in name: color_map.append('orange')
+        else: color_map.append('mediumseagreen') #Full FT
+    return color_map
