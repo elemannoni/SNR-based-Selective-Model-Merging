@@ -108,3 +108,11 @@ def cycle_consistency(model, model_A, model_B):
       cycle_loss += F.mse_loss(layer_orig.weight.data, layer_realigned.weight.data)
 
   print(f"Perdita di Coerenza Ciclica B: {cycle_loss.item()}")
+
+
+def check_models_identical(m1, m2):
+    """Verifica se due modelli hanno pesi identici."""
+    for p1, p2 in zip(m1.parameters(), m2.parameters()):
+        if not torch.equal(p1, p2):
+            return False
+    return True
