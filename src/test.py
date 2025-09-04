@@ -73,21 +73,6 @@ def finetuning_experiments(model, model_A, model_B, merged_models_to_evaluate, l
   else:
       print("L'allineamento non ha modificato i pesi di model_B quindi testare il modello non allineato non ha senso.")
 
-
-
-  merged_models_to_evaluate = {
-      "Merged Lerp 10%":  {"model": merged_model_10, "indices": indices_merged_10},
-      "Merged Lerp 15%":  {"model": merged_model_15,  "indices": indices_merged_15},
-      "Merged Avg Snr 15%":  {"model": merged_model_avg_snr,  "indices": indices_merged_avg_snr},
-      "Merged Slerp 10%":   {"model": merged_model_slerp_10,  "indices": indices_merged_slerp_10},
-      "Merged Slerp 15%":   {"model": merged_model_slerp_15,  "indices": indices_merged_slerp_15},
-      "Merged Ties 10%":    {"model": merged_model_ties_10,  "indices": indices_merged_ties_10},
-      "Merged Ties 15%":    {"model": merged_model_ties_15,  "indices": indices_merged_ties_15},
-      "Full LERP":          {"model": merged_model_lerp,  "indices": all_indices_lerp},
-      "Full SLERP":         {"model": merged_model_slerp, "indices": all_indices_slerp},
-      "Full TIES":         {"model": merged_model_ties, "indices": all_indices_ties},
-  }
-
   for name, data in merged_models_to_evaluate.items():
       original_merged_model, trainable_indices = data["model"], data["indices"]
       
