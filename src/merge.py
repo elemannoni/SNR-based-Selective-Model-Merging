@@ -61,7 +61,7 @@ def slerp_merging(p0: torch.Tensor, p1: torch.Tensor, t: float, epsilon=1e-8) ->
     return p_final.reshape(original_shape)
 
 
-def merge_models_top_p(model_a, model_b, base_model, snr_a, snr_b, snr_base,
+def merge_models_top_p(model_A, model_B, base_model, snr_a, snr_b, snr_base,
                        top_p=0.25, merge_method='lerp', snr_avg = False):
     """
     Merging dei modelli A e B fondendo solo la percentuale 'top_p' di layer
