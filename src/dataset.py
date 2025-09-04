@@ -56,4 +56,4 @@ def create_dataloader_CIFAR10(A_indices, B_indices, batch_size = 1024):
   print(f"Creato dataset di training B con {len(dataset_B)} campioni.")
   print(f"Creato dataset di test A con {len(test_dataset_A)} campioni.")
   print(f"Creato dataset di test B con {len(test_dataset_B)} campioni.")
-  return A_indices, B_indices, loader_A, loader_B, test_loader_A, test_loader_B, loader_full_train, loader_full_test
+  return loader_A, loader_B, test_loader_A, test_loader_B, loader_full_train, loader_full_test
