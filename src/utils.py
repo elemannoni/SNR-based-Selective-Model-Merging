@@ -123,7 +123,7 @@ def check_models_identical(m1, m2):
             return False
     return True
 
-def calculate_delta(model, base_model, device layer_to_ignore='output'):
+def calculate_delta(model, base_model, layer_to_ignore='output'):
     """
     Calcola la differenza (delta) tra i pesi di un modello e un modello base
     """
