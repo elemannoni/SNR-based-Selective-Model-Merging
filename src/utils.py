@@ -19,7 +19,7 @@ def transfer_body_weights(backbone_model, expert_model):
     expert_model.load_state_dict(weights_to_load, strict=False)
     print(f"Pesi del corpo trasferiti da backbone a esperto (output_size={expert_model.output_layer.out_features}).")
 
-def git_rebasin_align(model_ref, model_to_align):
+def git_rebasin_align(model_ref, model_to_align, device):
     """
     Allinea globalmente i pesi di 'model_to_align' a quelli di 'model_ref' sfruttando l'algoritmo di Git-Rebasin
     """
@@ -123,7 +123,7 @@ def check_models_identical(m1, m2):
             return False
     return True
 
-def calculate_delta(model, base_model, layer_to_ignore='output'):
+def calculate_delta(model, base_model, device layer_to_ignore='output'):
     """
     Calcola la differenza (delta) tra i pesi di un modello e un modello base
     """
