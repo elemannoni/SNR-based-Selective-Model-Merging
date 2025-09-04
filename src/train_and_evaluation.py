@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.metrics import f1_score
 
-def train_model(model, train_loader, test_loader, epochs=5, lr=0.001):
+def train_model(model, train_loader, test_loader, device, epochs=5, lr=0.001):
     """
     Funzione per addestrare il modello
     """
@@ -34,7 +34,7 @@ def train_model(model, train_loader, test_loader, epochs=5, lr=0.001):
 
     print("Addestramento completato.")
 
-def evaluate_model(model, loader):
+def evaluate_model(model, loader, device):
     """
     Funzione per valutare l'accuratezza di un modello usando come metriche
     l'accuratezza e il F1-Score.
