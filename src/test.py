@@ -3,8 +3,8 @@ import torch
 import tracemalloc
 from copy import deepcopy
 
-from train_and_evaluation import train_model, evaluate_model
-from utils import freeze_layers_selectively
+from .train_and_evaluation import train_model, evaluate_model
+from .utils import freeze_layers_selectively
 
 def finetuning_experiments(model, model_A, model_B, merged_models_to_evaluate, loader_full_train, loader_full_test, device, is_alignment_noop, 
                                epochs_base=10, lr_base=5e-5, epochs_merged=10, lr_merged=1e-4):
