@@ -4,8 +4,6 @@ from copy import deepcopy
 import numpy as np
 import math
 
-from model import CNN_snr
-
 def ties_merging_layer(base_param, param_a, param_b):
     """
     Esegue il TIES-merging per un singolo layer (tensore di pesi o bias)
@@ -70,8 +68,6 @@ def merge_models_top_p(model_a, model_b, base_model, snr_a, snr_b, snr_base,
     con l'SNR medio più alto, come descritto nel paper Spectrum
     Accetta come metodi di merging lerp, slerp e ties
     """
-    if base_model is None:
-        base_model = CNN_snr(output_size=10)
     merged_model = deepcopy(base_model)
     num_hidden_layers = len(merged_model.layers)
 
