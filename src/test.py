@@ -12,19 +12,19 @@ def finetuning_experiments(model, model_A, model_B, merged_models_to_evaluate, l
 
   print("\nTest: Fine-Tuning del Modello Base (No-Merge)...")
   base_ft_model = deepcopy(model)
-  acc_before, f1_before = evaluate_model(base_ft_model, loader_full_test)
+  acc_before, f1_before = evaluate_model(base_ft_model, loader_full_test, device)
 
   start_time = time.time()
   if device == "cuda": torch.cuda.reset_peak_memory_stats(device)
   else: tracemalloc.start()
 
-  train_model(base_ft_model, loader_full_train, loader_full_test, lr=lr_base, epochs=epochs_base)
+  train_model(base_ft_model, loader_full_train, loader_full_test, device, lr=lr_base, epochs=epochs_base)
 
   if device == "cuda": peak_ram_bytes = torch.cuda.max_memory_allocated(device)
   else: peak_ram_bytes = tracemalloc.get_traced_memory()[1]; tracemalloc.stop()
   end_time = time.time()
 
-  acc_after, f1_after = evaluate_model(base_ft_model, loader_full_test)
+  acc_after, f1_after = evaluate_model(base_ft_model, loader_full_test, device)
   results["Base Model + Fine-Tune"] = {
       'acc_zero_shot': acc_before,
       'acc_finetuned': acc_after,
@@ -48,19 +48,19 @@ def finetuning_experiments(model, model_A, model_B, merged_models_to_evaluate, l
               print(f" -> Skipping key '{key}' due to shape mismatch...")
       naive_merged_model.load_state_dict(naive_merged_state_dict)
 
-      acc_before_naive, f1_before_naive = evaluate_model(naive_merged_model, loader_full_test)
+      acc_before_naive, f1_before_naive = evaluate_model(naive_merged_model, loader_full_test, device)
 
       start_time = time.time()
       if device == "cuda": torch.cuda.reset_peak_memory_stats(device)
       else: tracemalloc.start()
 
-      train_model(naive_merged_model, loader_full_train, loader_full_test, lr=lr_merged, epochs=epochs_merged)
+      train_model(naive_merged_model, loader_full_train, loader_full_test, device, lr=lr_merged, epochs=epochs_merged)
 
       if device == "cuda": peak_ram_bytes = torch.cuda.max_memory_allocated(device)
       else: peak_ram_bytes = tracemalloc.get_traced_memory()[1]; tracemalloc.stop()
       end_time = time.time()
 
-      acc_after_naive, f1_after_naive = evaluate_model(naive_merged_model, loader_full_test)
+      acc_after_naive, f1_after_naive = evaluate_model(naive_merged_model, loader_full_test, device)
       results["Naive Average (No Align)"] = {
           'acc_zero_shot': acc_before_naive,
           'acc_finetuned': acc_after_naive,
@@ -101,7 +101,7 @@ def finetuning_experiments(model, model_A, model_B, merged_models_to_evaluate, l
           print(f"\n--- Analisi: {exp_name} ---")
           
           model_to_eval = deepcopy(original_merged_model).to(device)
-          acc_zero_shot, f1_zero_shot = evaluate_model(model_to_eval, loader_full_test)
+          acc_zero_shot, f1_zero_shot = evaluate_model(model_to_eval, loader_full_test, device)
           print(f"Accuratezza Zero-Shot: {acc_zero_shot:.2f}%, F1-Score: {f1_zero_shot:.2f}%")
 
           if strategy == "Selective FT":
@@ -117,12 +117,12 @@ def finetuning_experiments(model, model_A, model_B, merged_models_to_evaluate, l
           if device == "cuda": torch.cuda.reset_peak_memory_stats(device)
           else: tracemalloc.start()
 
-          train_model(model_to_eval, loader_full_train, loader_full_test, lr=1e-4, epochs=10)
+          train_model(model_to_eval, loader_full_train, loader_full_test, device, lr=1e-4, epochs=10)
 
           if device == "cuda": peak_ram_bytes = torch.cuda.max_memory_allocated(device)
           else: peak_ram_bytes = tracemalloc.get_traced_memory()[1]; tracemalloc.stop()
           end_time = time.time()
-          acc_finetuned, f1_finetuned = evaluate_model(model_to_eval, loader_full_test)
+          acc_finetuned, f1_finetuned = evaluate_model(model_to_eval, loader_full_test, device)
 
           #Salvataggio dei risultati in un dizionario unificato
           results[exp_name] = {
