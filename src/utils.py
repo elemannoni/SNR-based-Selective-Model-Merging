@@ -92,14 +92,14 @@ def git_rebasin_align(model_ref, model_to_align, device):
                 current_permutation = aligned_indices
     return aligned_model
 
-def cycle_consistency(model, model_A, model_B):
+def cycle_consistency(model, model_A, model_B, device):
     """
     Calcola la consistenza ciclica riallineando i modelli e confrontando con i pesi originali
     """
-    aligned_model_B = git_rebasin_align(model, model_B)
-    B_realigned = git_rebasin_align(model_B, aligned_model_B)
-    aligned_model_A = git_rebasin_align(model, model_A)
-    A_realigned = git_rebasin_align(model_A, aligned_model_A)
+    aligned_model_B = git_rebasin_align(model, model_B, device)
+    B_realigned = git_rebasin_align(model_B, aligned_model_B, device)
+    aligned_model_A = git_rebasin_align(model, model_A, device)
+    A_realigned = git_rebasin_align(model_A, aligned_model_A, device)
     
     cycle_loss = 0
     for layer_orig, layer_realigned in zip(model_A.layers, A_realigned.layers):
