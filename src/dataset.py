@@ -18,7 +18,7 @@ class RemappedDataset(Dataset):
     def __len__(self):
         return len(self.subset)
 
-def create_dataloader_CIFAR10(batch_size = 1024):
+def create_dataloader_CIFAR10(A_indices, B_indices, batch_size = 1024):
   """
   Funzione per scaricare CIFAR10 e creare i dataset e i dataloader
   """
@@ -31,11 +31,6 @@ def create_dataloader_CIFAR10(batch_size = 1024):
   #Caricamento dei dataset
   train_data_full = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_pipeline)
   test_data_full = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_pipeline)
-  
-  #Mappatura delle classi
-  A_indices = [0, 1, 8, 9]
-  B_indices = [2, 3, 4, 5, 6, 7]
-  
   
   train_indices_A = [i for i, label in enumerate(train_data_full.targets) if label in A_indices]
   train_indices_B = [i for i, label in enumerate(train_data_full.targets) if label in B_indices]
@@ -61,4 +56,4 @@ def create_dataloader_CIFAR10(batch_size = 1024):
   print(f"Creato dataset di training B con {len(dataset_B)} campioni.")
   print(f"Creato dataset di test A con {len(test_dataset_A)} campioni.")
   print(f"Creato dataset di test B con {len(test_dataset_B)} campioni.")
-  return loader_A, loader_B, test_loader_A, test_loader_B, loader_full_train, loader_full_test
+  return A_indices, B_indices, loader_A, loader_B, test_loader_A, test_loader_B, loader_full_train, loader_full_test
