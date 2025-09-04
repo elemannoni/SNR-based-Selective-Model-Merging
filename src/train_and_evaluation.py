@@ -26,7 +26,7 @@ def train_model(model, train_loader, test_loader, device, epochs=5, lr=0.001):
 
         epoch_loss = running_loss / len(train_loader.dataset)
 
-        accuracy, f1 = evaluate_model(model, test_loader)
+        accuracy, f1 = evaluate_model(model, test_loader, device)
 
         print(f"Epoch {epoch+1}/{epochs} -> "
               f"Loss: {epoch_loss:.4f}, "
