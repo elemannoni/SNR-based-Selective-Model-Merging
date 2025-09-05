@@ -244,7 +244,7 @@ def extract_metrics_from_results(results, baseline_model_name="Base Model + Fine
             if name == baseline_model_name:
                 baseline_acc = res['acc_finetuned']
                 min_baseline_acc = res['acc_zero_shot']
-            if "(Head Only)" in name:
+            if "(Only Head)" in name:
                 labels_acc.append(name[:-11] + " (Zero-Shot)")
                 data_acc.append(res['acc_zero_shot'])
 
@@ -254,7 +254,7 @@ def extract_metrics_from_results(results, baseline_model_name="Base Model + Fine
             if name == baseline_model_name:
                 baseline_f1 = res['f1_finetuned']
                 min_baseline_f1 = res['f1_zero_shot']
-            if "(Head Only)" in name:
+            if "(Only Head)" in name:
                 labels_f1.append(name[:-11] + " (Zero-Shot)")
                 data_f1.append(res['f1_zero_shot'])
 
