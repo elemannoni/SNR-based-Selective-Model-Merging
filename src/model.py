@@ -2,114 +2,75 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class SeparableConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
-        super(SeparableConvBlock, self).__init__()
-        self.depthwise = nn.Conv2d(in_channels, in_channels, kernel_size=kernel_size, padding=padding, groups=in_channels)
-        self.bn_depthwise = nn.BatchNorm2d(in_channels)
-        self.pointwise = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-        self.bn_pointwise = nn.BatchNorm2d(out_channels)
 
+class BasicBlock(nn.Module):
+    expansion = 1
+    def __init__(self, in_planes, planes, stride=1):
+        super(BasicBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.downsample = nn.Sequential()
+        if stride != 1 or in_planes != self.expansion * planes:
+            self.downsample = nn.Sequential(
+                nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(self.expansion * planes)
+            )
     def forward(self, x):
-        x = self.depthwise(x)
-        x = self.bn_depthwise(x)
-        x = self.pointwise(x)
-        x = self.bn_pointwise(x)
-        return x
-
-class ResidualSeparableBlock(nn.Module):
-    def __init__(self, channels):
-        super(ResidualSeparableBlock, self).__init__()
-        self.conv1 = SeparableConvBlock(channels, channels)
-        self.conv2 = SeparableConvBlock(channels, channels)
-
-    def forward(self, x):
-        residual = x
-        out = F.relu(self.conv1(x))
-        out = self.conv2(out)
-        out += residual
-        return F.relu(out)
-
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += self.downsample(x)
+        out = F.relu(out)
+        return out
 
 class CNN_snr(nn.Module):
-    def __init__(self, output_size=10):
+    def __init__(self, block=BasicBlock, num_blocks=[9, 9, 9], num_classes=100):
         super(CNN_snr, self).__init__()
-        self.initial_conv = SeparableConvBlock(3, 64)
-        self.res_stage1 = nn.Sequential(
-            ResidualSeparableBlock(channels=64),
-            ResidualSeparableBlock(channels=64),
-            ResidualSeparableBlock(channels=64)
-        )
-        self.transition1 = SeparableConvBlock(64, 128)
-        self.res_stage2 = nn.Sequential(
-            ResidualSeparableBlock(channels=128),
-            ResidualSeparableBlock(channels=128),
-            ResidualSeparableBlock(channels=128),
-            ResidualSeparableBlock(channels=128)
-        )
-        self.transition2 = SeparableConvBlock(128, 256)
-        self.res_stage3 = nn.Sequential(
-            ResidualSeparableBlock(channels=256),
-            ResidualSeparableBlock(channels=256),
-            ResidualSeparableBlock(channels=256)
-        )
-        self.fc1 = nn.Linear(256, 512)
-        self.bn_fc1 = nn.BatchNorm1d(512)
-        self.fc2 = nn.Linear(512, 256)
-        self.bn_fc2 = nn.BatchNorm1d(256)
-        self.fc3 = nn.Linear(256, 128)
-        self.bn_fc3 = nn.BatchNorm1d(128)
-        self.fc4 = nn.Linear(128, 64)
-        self.bn_fc4 = nn.BatchNorm1d(64)
-        self.output_layer = nn.Linear(64, output_size)
+        self.in_planes = 16
+
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(64 * block.expansion, num_classes)
 
         layers_list = []
-        layers_list.extend(self._expand_sep_block(self.initial_conv))
-        for block in self.res_stage1:
-            layers_list.extend(self._expand_res_block(block))
-        layers_list.extend(self._expand_sep_block(self.transition1))
-        for block in self.res_stage2:
-            layers_list.extend(self._expand_res_block(block))
-        layers_list.extend(self._expand_sep_block(self.transition2))
-        for block in self.res_stage3:
-            layers_list.extend(self._expand_res_block(block))
-        layers_list.extend([
-            self.fc1, self.bn_fc1, self.fc2, self.bn_fc2,
-            self.fc3, self.bn_fc3, self.fc4, self.bn_fc4
-        ])
-        self.layers = nn.ModuleList(layers_list)
+        layers_list.extend([self.conv1, self.bn1])
         
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.adaptive_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.dropout = nn.Dropout(0.4)
+        for layer_group in [self.layer1, self.layer2, self.layer3]:
+            for basic_block in layer_group:
+                layers_list.extend([
+                    basic_block.conv1,
+                    basic_block.bn1,
+                    basic_block.conv2,
+                    basic_block.bn2
+                ])
+                if isinstance(basic_block.downsample, nn.Sequential) and len(basic_block.downsample) > 0:
+                    layers_list.extend([
+                        basic_block.downsample[0],
+                        basic_block.downsample[1]
+                    ])
+        
+        layers_list.append(self.fc)
+        self.layers = nn.ModuleList(layers_list)
 
-    def _expand_sep_block(self, block):
-        """Helper per estrarre i layer da un SeparableConvBlock."""
-        return [
-            block.depthwise, block.bn_depthwise,
-            block.pointwise, block.bn_pointwise
-        ]
-
-    def _expand_res_block(self, block):
-        """Helper per estrarre i layer da un ResidualSeparableBlock."""
-        return [
-            *self._expand_sep_block(block.conv1),
-            *self._expand_sep_block(block.conv2)
-        ]
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+        return nn.Sequential(*layers)
 
     def forward(self, x):
-        x = F.relu(self.initial_conv(x))
-        x = self.res_stage1(x)
-        x = self.pool(x)
-        x = self.transition1(x)
-        x = self.res_stage2(x)
-        x = self.pool(x)
-        x = self.transition2(x)
-        x = self.res_stage3(x)
-        x = self.adaptive_pool(x)
-        x = x.view(x.size(0), -1)
-        x = self.dropout(F.relu(self.bn_fc1(self.fc1(x))))
-        x = self.dropout(F.relu(self.bn_fc2(self.fc2(x))))
-        x = self.dropout(F.relu(self.bn_fc3(self.fc3(x))))
-        x = F.relu(self.bn_fc4(self.fc4(x)))
-        return self.output_layer(x)
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.avgpool(out)
+        out = out.view(out.size(0), -1)
+        out = self.fc(out)
+        return out

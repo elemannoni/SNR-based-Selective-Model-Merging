@@ -62,57 +62,66 @@ def slerp_merging(p0: torch.Tensor, p1: torch.Tensor, t: float, epsilon=1e-8) ->
 
 
 def merge_models_top_p(model_a, model_b, base_model, snr_a, snr_b, snr_base,
-                       top_p=0.25, merge_method='lerp', snr_avg = False):
+                       top_p=0.25, merge_method='lerp', snr_avg=False):
     """
-    Merging dei modelli A e B fondendo solo la percentuale 'top_p' di layer
-    con l'SNR medio più alto, come descritto nel paper Spectrum
-    Accetta come metodi di merging lerp, slerp e ties
+    Merging dei modelli A e B. Per 'ties', la testa di classificazione finale viene esclusa.
     """
     merged_model = deepcopy(base_model)
-    num_hidden_layers = len(merged_model.layers)
+    num_layers_to_consider = len(merged_model.layers)
+    if merge_method == 'ties':
+        num_layers_to_consider -= 1
+        
+    num_hidden_layers = len(model_a.layers)
 
-    #Calcolo del numero di layer da fondere (viene usato math.ceil per assicurarsi di selezionare almeno un layer se p > 0)
-    k = math.ceil(num_hidden_layers * top_p)
+    k = math.ceil(num_layers_to_consider * top_p)
 
-    #Calcolo dell'SNR medio per ogni layer
     if snr_avg:
         avg_snrs = [(snr_a[i] + snr_b[i]) / 2 for i in range(num_hidden_layers)]
     else:
         avg_snrs = snr_base
 
-    #Indici corrispondenti ai top 'k' layer con SNR più alto
-    indices_to_merge = np.argsort(avg_snrs)[-k:]
+
+    indices_to_merge = np.argsort(avg_snrs[:num_layers_to_consider])[-k:]
 
     with torch.no_grad():
-        for i, (layer_a, layer_b, base_layer, merged_layer) in enumerate(zip(model_a.layers, model_b.layers, base_model.layers, merged_model.layers)):
-            if i in indices_to_merge:
+        for i in range(num_layers_to_consider):
+            layer_a, layer_b, base_layer, merged_layer = (
+                model_a.layers[i], model_b.layers[i], 
+                base_model.layers[i], merged_model.layers[i]
+            )
 
-                merge_alpha = snr_b[i]/(snr_b[i]+snr_a[i])
+            if i in indices_to_merge:
+                merge_alpha = snr_b[i] / (snr_b[i] + snr_a[i])
 
                 if merge_method == 'lerp':
                     merged_layer.weight.data = (1 - merge_alpha) * layer_a.weight.data + merge_alpha * layer_b.weight.data
-                    merged_layer.bias.data = (1 - merge_alpha) * layer_a.bias.data + merge_alpha * layer_b.bias.data
+                    if merged_layer.bias is not None:
+                        merged_layer.bias.data = (1 - merge_alpha) * layer_a.bias.data + merge_alpha * layer_b.bias.data
+                
                 elif merge_method == 'slerp':
                     merged_layer.weight.data = slerp_merging(layer_a.weight.data, layer_b.weight.data, merge_alpha)
-                    merged_layer.bias.data = slerp_merging(layer_a.bias.data, layer_b.bias.data, merge_alpha)
+                    if merged_layer.bias is not None:
+                        merged_layer.bias.data = slerp_merging(layer_a.bias.data, layer_b.bias.data, merge_alpha)
+                
                 elif merge_method == 'ties':
-                    merged_model.layers[i].weight.data = ties_merging_layer(
-                        base_model.layers[i].weight.data,
-                        model_a.layers[i].weight.data,
-                        model_b.layers[i].weight.data
+                    merged_layer.weight.data = ties_merging_layer(
+                        base_layer.weight.data,
+                        layer_a.weight.data,
+                        layer_b.weight.data
                     )
-                    if model_a.layers[i].bias is not None:
-                        merged_model.layers[i].bias.data = ties_merging_layer(
-                            base_model.layers[i].bias.data,
-                            model_a.layers[i].bias.data,
-                            model_b.layers[i].bias.data
+                    if merged_layer.bias is not None:
+                        merged_layer.bias.data = ties_merging_layer(
+                            base_layer.bias.data,
+                            layer_a.bias.data,
+                            layer_b.bias.data
                         )
                 else:
                     raise ValueError(f"Metodo di fusione '{merge_method}' non supportato.")
 
             else:
                 merged_layer.weight.data = base_layer.weight.data
-                merged_layer.bias.data = base_layer.bias.data
-
+                if merged_layer.bias is not None:
+                    merged_layer.bias.data = base_layer.bias.data
+    
 
     return indices_to_merge, merged_model

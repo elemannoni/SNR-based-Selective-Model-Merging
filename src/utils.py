@@ -13,94 +13,97 @@ def transfer_body_weights(backbone_model, expert_model):
     backbone_state_dict = backbone_model.state_dict()
     weights_to_load = {}
     for name, param in backbone_state_dict.items():
-        if "output_layer" not in name:
+        if backbone_state_dict[name].shape == expert_model.state_dict()[name].shape:
             weights_to_load[name] = param
+        else:
+            print(f"Salto il layer '{name}' a causa di una forma incompatibile: backbone {param.shape} vs expert {expert_model.state_dict()[name].shape}")
 
     expert_model.load_state_dict(weights_to_load, strict=False)
-    print(f"Pesi del corpo trasferiti da backbone a esperto (output_size={expert_model.output_layer.out_features}).")
+    print(f"Pesi del corpo trasferiti da backbone a esperto (output_size={expert_model.fc.out_features}).")
+
+def align_layer_weights(layer_ref, layer_aligned, perm_in=None, perm_out=None):
+    """Funzione helper per allineare un singolo layer (Conv o Linear)."""
+    with torch.no_grad():
+        if perm_in is not None:
+            if isinstance(layer_aligned, nn.Linear):
+                layer_aligned.weight.data = layer_aligned.weight.data[:, perm_in]
+            elif isinstance(layer_aligned, nn.Conv2d):
+                layer_aligned.weight.data = layer_aligned.weight.data[:, perm_in, :, :]
+
+        if perm_out is False:
+            return None
+
+
+        w_ref = layer_ref.weight.data
+        w_aligned = layer_aligned.weight.data
+        
+        w_ref_reshaped = w_ref.view(w_ref.size(0), -1)
+        w_aligned_reshaped = w_aligned.view(w_aligned.size(0), -1)
+
+        cost_matrix = torch.cdist(w_ref_reshaped, w_aligned_reshaped, p=2.0)
+        _, perm_indices = linear_sum_assignment(cost_matrix.cpu().numpy())
+        perm_indices = torch.tensor(perm_indices, dtype=torch.long, device=w_ref.device)
+
+        layer_aligned.weight.data = w_aligned[perm_indices, :] if isinstance(layer_aligned, nn.Linear) else w_aligned[perm_indices, :, :, :]
+        if layer_aligned.bias is not None:
+            layer_aligned.bias.data = layer_aligned.bias.data[perm_indices]
+            
+        return perm_indices
+
+def align_bn_layer(bn_layer, perm):
+    """Funzione helper per permutare un layer BatchNorm."""
+    if bn_layer is not None and perm is not None:
+        bn_layer.weight.data = bn_layer.weight.data[perm]
+        bn_layer.bias.data = bn_layer.bias.data[perm]
+        bn_layer.running_mean.data = bn_layer.running_mean.data[perm]
+        bn_layer.running_var.data = bn_layer.running_var.data[perm]
 
 def git_rebasin_align(model_ref, model_to_align, device):
     """
-    Allinea globalmente i pesi di 'model_to_align' a quelli di 'model_ref' sfruttando l'algoritmo di Git-Rebasin
+    Allinea i pesi di 'model_to_align' a 'model_ref' per un'architettura ResNet.
     """
     aligned_model = deepcopy(model_to_align)
-    layers_ref = model_ref.layers
-    layers_aligned = aligned_model.layers
+    
+    perm = align_layer_weights(model_ref.conv1, aligned_model.conv1)
+    align_bn_layer(aligned_model.bn1, perm)
 
-    current_permutation = None
-
-    with torch.no_grad():
-        for i in range(len(layers_ref)):
-            layer_ref = layers_ref[i]
-            layer_aligned = layers_aligned[i]
+    for layer_name in ["layer1", "layer2", "layer3"]:
+        layer_ref_group = getattr(model_ref, layer_name)
+        layer_aligned_group = getattr(aligned_model, layer_name)
+        
+        for block_idx in range(len(layer_ref_group)):
+            block_ref = layer_ref_group[block_idx]
+            block_aligned = layer_aligned_group[block_idx]
             
-            if current_permutation is not None:
-                if isinstance(layer_aligned, nn.Linear):
-                    layer_aligned.weight.data = layer_aligned.weight.data[:, current_permutation]
-                elif isinstance(layer_aligned, nn.Conv2d):
-                    if layer_aligned.groups > 1:
-                         layer_aligned.weight.data = layer_aligned.weight.data[current_permutation, :, :, :]
-                    else:
-                         layer_aligned.weight.data = layer_aligned.weight.data[:, current_permutation, :, :]
+            align_layer_weights(block_ref.conv1, block_aligned.conv1, perm_in=perm, perm_out=False)
+            if len(block_aligned.downsample) > 0:
+                align_layer_weights(block_ref.downsample[0], block_aligned.downsample[0], perm_in=perm, perm_out=False)
 
-
-            if isinstance(layer_aligned, (nn.BatchNorm1d, nn.BatchNorm2d)):
-                continue
-
+            perm_conv1 = align_layer_weights(block_ref.conv1, block_aligned.conv1)
+            align_bn_layer(block_aligned.bn1, perm_conv1)
             
-            w_ref = layer_ref.weight.data
-            w_aligned = layer_aligned.weight.data
+            perm_conv2 = align_layer_weights(block_ref.conv2, block_aligned.conv2, perm_in=perm_conv1)
+            align_bn_layer(block_aligned.bn2, perm_conv2)
             
+            if len(block_aligned.downsample) > 0:
+                perm_downsample = align_layer_weights(block_ref.downsample[0], block_aligned.downsample[0])
+                align_bn_layer(block_aligned.downsample[1], perm_downsample)
             
-            w_ref_reshaped = w_ref.view(w_ref.size(0), -1)
-            w_aligned_reshaped = w_aligned.view(w_aligned.size(0), -1)
-            
-            cost_matrix = torch.cdist(w_ref_reshaped, w_aligned_reshaped, p=2.0)
-            _, aligned_indices = linear_sum_assignment(cost_matrix.cpu().numpy())
-            aligned_indices = torch.tensor(aligned_indices, dtype=torch.long, device=w_ref.device)
+            perm = perm_conv2
 
-            if isinstance(layer_aligned, nn.Linear):
-                layer_aligned.weight.data = w_aligned[aligned_indices, :]
-            else:
-                layer_aligned.weight.data = w_aligned[aligned_indices, :, :, :]
-            if layer_aligned.bias is not None:
-                layer_aligned.bias.data = layer_aligned.bias.data[aligned_indices]
+    align_layer_weights(model_ref.fc, aligned_model.fc, perm_in=perm)
 
-            if i > 0 and isinstance(layers_aligned[i-1], (nn.BatchNorm1d, nn.BatchNorm2d)):
-                bn_layer = layers_aligned[i-1]
-                bn_layer.weight.data = bn_layer.weight.data[current_permutation]
-                bn_layer.bias.data = bn_layer.bias.data[current_permutation]
-                bn_layer.running_mean.data = bn_layer.running_mean.data[current_permutation]
-                bn_layer.running_var.data = bn_layer.running_var.data[current_permutation]
-
-            is_conv_to_linear = (i + 1 < len(layers_ref) and
-                                 isinstance(layer_ref, nn.Conv2d) and
-                                 isinstance(layers_ref[i+1], nn.Linear))
-            
-            if is_conv_to_linear:
-                next_layer_aligned = layers_aligned[i+1]
-                spatial_dims = next_layer_aligned.in_features // w_ref.size(0)
-                
-                expanded_indices = torch.repeat_interleave(aligned_indices, spatial_dims)
-                offset = torch.arange(0, next_layer_aligned.in_features, spatial_dims, device=w_ref.device)
-                offset = torch.repeat_interleave(offset, spatial_dims)
-                perm_map = torch.zeros_like(expanded_indices)
-                for j, idx in enumerate(aligned_indices):
-                    perm_map[j*spatial_dims:(j+1)*spatial_dims] = torch.arange(idx*spatial_dims, (idx+1)*spatial_dims, device=w_ref.device)
-                current_permutation = perm_map
-            else:
-                current_permutation = aligned_indices
     return aligned_model
 
 def cycle_consistency(model, model_A, model_B, device):
     """
     Calcola la consistenza ciclica riallineando i modelli e confrontando con i pesi originali
     """
-    aligned_model_B = git_rebasin_align(model, model_B, device)
-    B_realigned = git_rebasin_align(model_B, aligned_model_B, device)
-    aligned_model_A = git_rebasin_align(model, model_A, device)
-    A_realigned = git_rebasin_align(model_A, aligned_model_A, device)
-    
+    aligned_model_B = git_rebasin_align(deepcopy(model), model_B, device)
+    B_realigned = git_rebasin_align(deepcopy(model_B), aligned_model_B, device)
+    aligned_model_A = git_rebasin_align(deepcopy(model), model_A, device)
+    A_realigned = git_rebasin_align(deepcopy(model_A), aligned_model_A, device)
+
     cycle_loss = 0
     for layer_orig, layer_realigned in zip(model_A.layers, A_realigned.layers):
       cycle_loss += F.mse_loss(layer_orig.weight.data, layer_realigned.weight.data)
@@ -123,17 +126,20 @@ def check_models_identical(m1, m2):
             return False
     return True
 
-def calculate_delta(model, base_model, layer_to_ignore='output'):
+
+def calculate_delta(model, base_model, layer_to_ignore=None):
     """
-    Calcola la differenza (delta) tra i pesi di un modello e un modello base
+    Calcola la differenza (delta) tra i pesi, ignorando correttamente
+    i layer le cui dimensioni non corrispondono.
     """
     base_weights = base_model.state_dict()
     model_weights = model.state_dict()
-    delta = {
-        key: model_weights[key].to(base_weights[key].device) - base_weights[key]
-        for key in base_weights
-        if layer_to_ignore not in key
-    }
+    delta = {}
+    for key in base_weights:
+        if layer_to_ignore and key.startswith(layer_to_ignore):
+            continue
+        if key in model_weights and base_weights[key].shape == model_weights[key].shape:
+            delta[key] = model_weights[key].to(base_weights[key].device) - base_weights[key]
     return delta
 
 def calculate_cosine_similarity(delta1, delta2):
@@ -149,40 +155,25 @@ def calculate_cosine_similarity(delta1, delta2):
 
 def perform_consistency_analysis(delta_A, delta_B, delta_merged):
     """
-    Calcola la consistenza ciclica su un set di delta
+    Calcola la consistenza ciclica, operando solo sui layer comuni a tutti i delta.
     """
-    if not delta_merged: #Se non ci sono layer da analizzare
+    common_keys = delta_A.keys() & delta_B.keys() & delta_merged.keys()
+
+    if not common_keys:
         return 0.0, 0.0, 0.0
 
-    #Vettori di spostamento
-    recovered_B_direction = {key: delta_merged[key] - delta_A[key] for key in delta_merged}
-    recovered_A_direction = {key: delta_merged[key] - delta_B[key] for key in delta_merged}
 
-    #Vettori target
-    target_B_direction = {key: delta_B[key] - delta_A[key] for key in delta_merged}
-    target_A_direction = {key: delta_A[key] - delta_B[key] for key in delta_merged}
+    recovered_B_direction = {key: delta_merged[key] - delta_A[key] for key in common_keys}
+    recovered_A_direction = {key: delta_merged[key] - delta_B[key] for key in common_keys}
 
-    #Calcolo similarità
+    target_B_direction = {key: delta_B[key] - delta_A[key] for key in common_keys}
+    target_A_direction = {key: delta_A[key] - delta_B[key] for key in common_keys}
+
     consistency_A = calculate_cosine_similarity(recovered_A_direction, target_A_direction)
     consistency_B = calculate_cosine_similarity(recovered_B_direction, target_B_direction)
     avg_consistency = (consistency_A + consistency_B) / 2
     
     return consistency_A, consistency_B, avg_consistency
-
-def print_summary(title, results_dict):
-    print("\n" + "="*50)
-    print(f"{title}")
-    print("="*50)
-    if not results_dict:
-        print("Nessun risultato da visualizzare.")
-        return
-    results_df = pd.DataFrame.from_dict(results_dict, orient='index')
-    results_df = results_df.sort_values(by='avg_consistency', ascending=False)
-    print(results_df.to_string(formatters={
-        'consistency_A': '{:,.4f}'.format,
-        'consistency_B': '{:,.4f}'.format,
-        'avg_consistency': '{:,.4f}'.format
-    }))
 
 def freeze_layers_selectively(model, trainable_indices: list):
     """  
@@ -200,9 +191,8 @@ def freeze_layers_selectively(model, trainable_indices: list):
                 param.requires_grad = True
 
     #Scongela sempre l'output_layer
-    for param in model.output_layer.parameters():
+    for param in model.fc.parameters():
         param.requires_grad = True
-
 def get_group_name(model_name):
     """
     Estrae il nome del gruppo da un nome di modello completo (il gruppo è tutto ciò che precede la prima parentesi '(')
@@ -221,6 +211,7 @@ def get_plot_colors(labels):
         elif 'Expert' in name: color_map.append('silver')
         elif 'Selective FT' in name: color_map.append('lightcoral')
         elif 'Only Head' in name: color_map.append('orange')
+        elif 'Zero-Shot' in name: color_map.append('gold')
         else: color_map.append('mediumseagreen') #Full FT
     return color_map
 
@@ -239,24 +230,24 @@ def extract_metrics_from_results(results, baseline_model_name="Base Model + Fine
 
     for name, res in results.items():
         if res.get('acc_finetuned') is not None:
-            labels_acc.append(name)
-            data_acc.append(res['acc_finetuned'])
             if name == baseline_model_name:
                 baseline_acc = res['acc_finetuned']
                 min_baseline_acc = res['acc_zero_shot']
             if "(Only Head)" in name:
                 labels_acc.append(name[:-11] + " (Zero-Shot)")
                 data_acc.append(res['acc_zero_shot'])
+            labels_acc.append(name)
+            data_acc.append(res['acc_finetuned'])
 
         if res.get('f1_finetuned') is not None:
-            labels_f1.append(name)
-            data_f1.append(res['f1_finetuned'])
             if name == baseline_model_name:
                 baseline_f1 = res['f1_finetuned']
                 min_baseline_f1 = res['f1_zero_shot']
             if "(Only Head)" in name:
                 labels_f1.append(name[:-11] + " (Zero-Shot)")
                 data_f1.append(res['f1_zero_shot'])
+            labels_f1.append(name)
+            data_f1.append(res['f1_finetuned'])
 
         if res.get('time') is not None:
             labels_time.append(name)
