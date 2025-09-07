@@ -193,6 +193,23 @@ def freeze_layers_selectively(model, trainable_indices: list):
     #Scongela sempre l'output_layer
     for param in model.fc.parameters():
         param.requires_grad = True
+
+def print_summary(title, results_dict):
+    print("\n" + "="*50)
+    print(f"{title}")
+    print("="*50)
+    if not results_dict:
+        print("Nessun risultato da visualizzare.")
+        return
+    results_df = pd.DataFrame.from_dict(results_dict, orient='index')
+    results_df = results_df.sort_values(by='avg_consistency', ascending=False)
+    print(results_df.to_string(formatters={
+        'consistency_A': '{:,.4f}'.format,
+        'consistency_B': '{:,.4f}'.format,
+        'avg_consistency': '{:,.4f}'.format
+    }))
+
+
 def get_group_name(model_name):
     """
     Estrae il nome del gruppo da un nome di modello completo (il gruppo è tutto ciò che precede la prima parentesi '(')
