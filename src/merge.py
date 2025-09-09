@@ -61,10 +61,37 @@ def slerp_merging(p0: torch.Tensor, p1: torch.Tensor, t: float, epsilon=1e-8) ->
     return p_final.reshape(original_shape)
 
 
-def merge_models_top_p(model_a, model_b, base_model, snr_a, snr_b, snr_base,
-                       top_p=0.25, merge_method='lerp', snr_avg=False):
+def calculate_layer_similarities(delta_a, delta_b, layers, device='cuda'):
     """
-    Merging dei modelli A e B. Per 'ties', la testa di classificazione finale viene esclusa.
+    Calcola la similarità cosenica tra i task vector per ogni layer.
+    """
+    similarities = []
+    with torch.no_grad():
+        for i, layer in enumerate(layers):
+            layer_keys = [k for k in delta_a if k.startswith(f"layers.{i}.")]
+            
+            if not layer_keys:
+                similarities.append(0.0)
+                continue
+            
+            vec_a = torch.cat([delta_a[k].flatten() for k in layer_keys]).to(device)
+            vec_b = torch.cat([delta_b[k].flatten() for k in layer_keys]).to(device)
+            similarity = F.cosine_similarity(vec_a.float(), vec_b.float(), dim=0).item()
+            similarities.append(similarity)
+            
+    return similarities
+
+def merge_models_top_p(model_a, model_b, base_model, 
+                       snr_a, snr_b, layer_similarities,
+                       top_p=0.25, merge_method='lerp', 
+                       selection_criteria='hybrid'):
+    """
+    Esegue il merge dei modelli A e B selezionando i layer in base a un criterio specifico.
+    
+    Args:
+        selection_criteria (str): Metodo per selezionare i layer. 
+                                  Opzioni: 'snr', 'similarity', 'hybrid'.
+        layer_similarities (list): Lista pre-calcolata della similarità cosenica per ogni layer.
     """
     merged_model = deepcopy(base_model)
     num_layers_to_consider = len(merged_model.layers)
@@ -72,16 +99,25 @@ def merge_models_top_p(model_a, model_b, base_model, snr_a, snr_b, snr_base,
         num_layers_to_consider -= 1
         
     num_hidden_layers = len(model_a.layers)
-
     k = math.ceil(num_layers_to_consider * top_p)
 
-    if snr_avg:
-        avg_snrs = [(snr_a[i] + snr_b[i]) / 2 for i in range(num_hidden_layers)]
+    avg_snrs = np.array([(snr_a[i] + snr_b[i]) / 2 for i in range(num_hidden_layers)])
+    avg_snrs = avg_snrs / np.sum(avg_snrs)
+    similarities = np.array(layer_similarities)
+    similarities = similarities  / np.sum(similarities)
+    if selection_criteria == 'snr':
+        scores = avg_snrs
+    elif selection_criteria == 'similarity':
+        scores = similarities
+    elif selection_criteria == 'hybrid':
+        # Punteggio = SNR * 1 + Similarity * 1.7 (peso maggiore alla similarità)
+        scores = avg_snrs + similarities * 1.7
     else:
-        avg_snrs = snr_base
+        raise ValueError(f"Criterio di selezione '{selection_criteria}' non supportato.")
 
-
-    indices_to_merge = np.argsort(avg_snrs[:num_layers_to_consider])[-k:]
+    # Seleziona i top 'k' indici in base al punteggio calcolato
+    indices_to_merge = np.argsort(scores[:num_layers_to_consider])[-k:]
+    
 
     with torch.no_grad():
         for i in range(num_layers_to_consider):
@@ -123,5 +159,4 @@ def merge_models_top_p(model_a, model_b, base_model, snr_a, snr_b, snr_base,
                 if merged_layer.bias is not None:
                     merged_layer.bias.data = base_layer.bias.data
     
-
     return indices_to_merge, merged_model
