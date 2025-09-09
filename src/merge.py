@@ -110,12 +110,12 @@ def merge_models_top_p(model_a, model_b, base_model,
     elif selection_criteria == 'similarity':
         scores = similarities
     elif selection_criteria == 'hybrid':
-        # Punteggio = SNR * 1 + Similarity * 1.7 (peso maggiore alla similarità)
+        #Punteggio = SNR * 1 + Similarity * 1.7 (peso maggiore alla similarità)
         scores = avg_snrs + similarities * 1.7
     else:
         raise ValueError(f"Criterio di selezione '{selection_criteria}' non supportato.")
 
-    # Seleziona i top 'k' indici in base al punteggio calcolato
+    #Seleziona i top 'k' indici in base al punteggio calcolato
     indices_to_merge = np.argsort(scores[:num_layers_to_consider])[-k:]
     
 
